@@ -12,13 +12,13 @@ import org.junit.jupiter.params.provider.CsvSource
 
 class Day03Test {
 
-    @ParameterizedTest
-    @CsvSource(
-        ""
-    )
-    fun testPuzzle1(input: Int, expected: Int) {
-        assertEquals(expected, input)
-    }
+//    @ParameterizedTest
+//    @CsvSource(
+//        ""
+//    )
+//    fun testPuzzle1(input: Int, expected: Int) {
+//        assertEquals(expected, input)
+//    }
 
     @ParameterizedTest
     @CsvSource(
@@ -28,13 +28,13 @@ class Day03Test {
             "[1,1];R;99;[100,1]",
             "[1,1];U;2;[1,3]",
             ])
-    fun testGetDestinationCoordinate(
+    fun testStep(
         @ConvertWith(CoordinateConverter::class) origin: Coordinate,
         direction: Direction,
         distance: Int,
         @ConvertWith(CoordinateConverter::class) expected: Coordinate,
     ) {
-        assertEquals(expected, WirePath(direction, distance).getDestinationCoordinate(origin))
+        assertEquals(expected, origin.step(direction, distance))
     }
 
     // grid tests

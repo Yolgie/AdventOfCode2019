@@ -3,6 +3,7 @@ package at.cnoize.adventOfCode2019.day03
 import Worker
 import runOnInputFile
 import kotlin.math.abs
+import kotlin.math.max
 
 const val INPUT_FILE = "Day03.input"
 
@@ -17,16 +18,26 @@ val workerPuzzle1 = Worker { input ->
     }
 
     val origin = Coordinate(0, 0)
-    val allWiresA = getPathCoordinates(origin, wireA).toList().zipWithNext()
-    val allWiresB = getPathCoordinates(origin, wireB).zipWithNext().toList()
+    val allWiresA = getAllCoordinatesForWire(origin, wireA)
+    val allWiresB = getAllCoordinatesForWire(origin, wireB)
 
     val wireboard = Wireboard()
-        .addAllWires(allWiresA) { node -> node.copy(wireA = true) }
-        .addAllWires(allWiresB) { node -> node.copy(wireB = true) }
+        .addOrUpdateAllCoordinates(allWiresA) { node -> node.copy(wireA = true) }
+        .addOrUpdateAllCoordinates(allWiresB) { node -> node.copy(wireB = true) }
 
-    //wireboard.visualize()
+    wireboard.visualize()
 
     input.toString()
+}
+
+private fun getAllCoordinatesForWire(
+    origin: Coordinate,
+    wirePath: List<WirePath>
+): Set<Coordinate> {
+    return getPathCoordinates(origin, wirePath)
+        .zipWithNext()
+        .flatMap { (start, end) -> (start..end) }
+        .toSet()
 }
 
 val workerPuzzle2 = Worker { input ->
@@ -38,20 +49,20 @@ fun getPathCoordinates(start: Coordinate, wire: List<WirePath>): Sequence<Coordi
         yield(start)
         var current = start
         for (nextWirePath in wire) {
-            current = nextWirePath.getDestinationCoordinate(current)
+            current = current.step(nextWirePath.direction, nextWirePath.distance)
             yield(current)
         }
     }
 }
 
-data class WirePath(val direction: Direction, val lenght: Int)
+data class WirePath(val direction: Direction, val distance: Int)
 
 fun WirePath.getDestinationCoordinate(start: Coordinate): Coordinate {
     return when (direction) {
-        Direction.U -> Coordinate(start.x, start.y + lenght)
-        Direction.D -> Coordinate(start.x, start.y - lenght)
-        Direction.L -> Coordinate(start.x - lenght, start.y)
-        Direction.R -> Coordinate(start.x + lenght, start.y)
+        Direction.U -> Coordinate(start.x, start.y + distance)
+        Direction.D -> Coordinate(start.x, start.y - distance)
+        Direction.L -> Coordinate(start.x - distance, start.y)
+        Direction.R -> Coordinate(start.x + distance, start.y)
     }
 }
 
@@ -59,7 +70,22 @@ fun String.toWirePath(): WirePath {
     return WirePath(Direction.valueOf(this.substring(0, 1)), this.substring(1).toInt())
 }
 
-enum class Direction { U, D, L, R }
+enum class Direction {
+    U, L, D, R;
+
+    fun nextClockwise(): Direction {
+        return valueArray[(this.ordinal + valueArray.size - 1) % valueArray.size]
+    }
+
+    fun nextCounterClockwise(): Direction {
+        return valueArray[(this.ordinal + 1) % valueArray.size]
+    }
+
+    companion object {
+        private val valueArray = values()
+    }
+}
+
 
 data class Wireboard(override val nodes: Map<Coordinate, WireboardElement> = emptyMap()) :
     EndlessGrid<WireboardElement> {
@@ -67,11 +93,11 @@ data class Wireboard(override val nodes: Map<Coordinate, WireboardElement> = emp
 
     override fun visualize() {
         require(coordinates.isNotEmpty()) { "Empty board can not be visualized" }
-        val fullBoard = MinimalSquare(*(coordinates.toTypedArray()), padding = 1)
+        val fullBoard = MinimalSquare(coordinates, padding = 1)
         val fullBoardWithFrame = MinimalSquare(fullBoard, padding = 1)
         for (coordinate in fullBoardWithFrame) {
-            val node: Node? = when {
-                coordinate !in fullBoard -> FrameNode()
+            val node: Node? = when (coordinate) {
+                !in fullBoard -> FrameNode()
                 else -> nodes[coordinate]
             }
             print(node?.gridChar ?: ' ')
@@ -81,34 +107,24 @@ data class Wireboard(override val nodes: Map<Coordinate, WireboardElement> = emp
         }
     }
 
-    fun addAllWires(
-        wires: List<Pair<Coordinate, Coordinate>>,
-        updater: (WireboardElement) -> WireboardElement
-    ): Wireboard {
-        return wires.fold(this) { board, wire -> board.addWire(wire.first, wire.second, updater) }
-    }
-
-    fun addWire(
-        start: Coordinate,
-        end: Coordinate,
-        updater: (WireboardElement) -> WireboardElement
-    ): Wireboard {
-        return (start..end).fold(this) { board, coordinate -> board.addOrUpdateNode(coordinate, updater) }
-    }
-
     fun addOrUpdateNode(
         coordinate: Coordinate,
         updater: (WireboardElement) -> WireboardElement
     ): Wireboard {
-        return when (coordinate) {
-            in this.coordinates -> Wireboard(this.nodes.mapValues { (key, node) ->
-                print('.')
-                if (key == coordinate) updater(
-                    node
-                ) else (node)
-            })
-            else -> Wireboard(this.nodes.plus(Pair(coordinate, updater(WireboardElement()))))
+        val newNodes = this.nodes.toMutableMap()
+        newNodes[coordinate] = newNodes.getOrDefault(coordinate, WireboardElement()).run(updater)
+        return Wireboard(newNodes.toMutableMap())
+    }
+
+    fun addOrUpdateAllCoordinates(
+        coordinates: Collection<Coordinate>,
+        updater: (WireboardElement) -> WireboardElement
+    ): Wireboard {
+        val newNodes = this.nodes.toMutableMap()
+        coordinates.forEach { coordinate ->
+            newNodes[coordinate] = newNodes.getOrDefault(coordinate, WireboardElement()).run(updater)
         }
+        return Wireboard(newNodes.toMutableMap())
     }
 }
 
@@ -134,9 +150,9 @@ interface Node {
 }
 
 data class Coordinate(val x: Int, val y: Int) : Comparable<Coordinate> {
-    val xComparator = compareBy<Coordinate> { it.x }
-    val yComparator = compareBy<Coordinate> { it.y }
-    private val digitLength = Math.max(x.toString().length, y.toString().length)
+    //    val xComparator = compareBy<Coordinate> { it.x }
+//    val yComparator = compareBy<Coordinate> { it.y }
+    private val digitLength = max(x.toString().length, y.toString().length)
 
     fun getManhattanDistance(other: Coordinate): Int {
         return abs(this.x - other.x) + abs(this.y - other.y)
@@ -172,9 +188,18 @@ data class Coordinate(val x: Int, val y: Int) : Comparable<Coordinate> {
         return result
     }
 
+    fun step(direction: Direction, distance: Int = 1): Coordinate {
+        return when (direction) {
+            Direction.U -> Coordinate(x, y + distance)
+            Direction.D -> Coordinate(x, y - distance)
+            Direction.L -> Coordinate(x - distance, y)
+            Direction.R -> Coordinate(x + distance, y)
+        }
+
+    }
+
     companion object {
         private val regex = Regex("""\[(-?\d*?),(-?\d*?)]""")
-        private val origin = Coordinate(0, 0)
 
         fun String.toCoordinate(): Coordinate {
             if (!this.matches(regex))
@@ -201,6 +226,8 @@ class EasyCoordinateIterator(val start: Coordinate, val endInclusive: Coordinate
     }
 
     override fun next(): Coordinate {
+        if (!hasNext())
+            throw NoSuchElementException()
         val current = next
         next = when {
             next.y < endInclusive.y -> Coordinate(next.x, next.y + 1)
@@ -218,6 +245,8 @@ class ReadingDirectionCoordinateIterator(val minimalSquare: MinimalSquare) : Ite
     }
 
     override fun next(): Coordinate {
+        if (!hasNext())
+            throw NoSuchElementException()
         val current = next
         next = when {
             next.x < minimalSquare.maxX -> Coordinate(next.x + 1, next.y)
@@ -227,14 +256,59 @@ class ReadingDirectionCoordinateIterator(val minimalSquare: MinimalSquare) : Ite
     }
 }
 
-fun Int.zeroPad(lenght: Int): String = this.toString().padStart(lenght, '0')
+class SpiralCoordinateSequence(val start: Coordinate, val endInclusive: Coordinate) : Sequence<Coordinate> {
+    override fun iterator(): Iterator<Coordinate> {
+        return SpiralCoordinateIterator(start, endInclusive)
+    }
+}
 
-class MinimalSquare(vararg coordinates: Coordinate, padding: Int = 0) : Iterable<Coordinate> {
+// todo write test for this
+// todo use this to find the closest crossing to origin
+class SpiralCoordinateIterator(val start: Coordinate, val endInclusive: Coordinate) : Iterator<Coordinate> {
+    var next = start
+    var top = start.y
+    var bottom = start.y
+    var left = start.x
+    var right = start.x
+    var direction = Direction.R
+    var hasNext = true
+
+    override fun hasNext(): Boolean {
+        return hasNext
+    }
+
+    override fun next(): Coordinate {
+        if (!hasNext())
+            throw NoSuchElementException()
+
+        val current = next
+        if (current == endInclusive) {
+            hasNext = false;
+        }
+        if (current.x !in left..right || current.y !in bottom..top) {
+            direction = direction.nextClockwise()
+        }
+        top = max(top, next.y)
+        bottom = kotlin.math.min(bottom, next.y)
+        left = kotlin.math.min(left, next.x)
+        right = max(right, next.x)
+
+        next = next.step(direction)
+
+        return current
+    }
+}
+
+fun Int.zeroPad(length: Int): String = this.toString().padStart(length, '0')
+
+class MinimalSquare(coordinates: Collection<Coordinate>, padding: Int = 0) : Iterable<Coordinate> {
     constructor(minimalSquare: MinimalSquare, padding: Int = 0) : this(
         minimalSquare.bottomRight,
         minimalSquare.topLeft,
         padding = padding
     )
+
+    constructor(vararg coordinates: Coordinate, padding: Int = 0) : this(coordinates.toList(), padding)
 
     val minX = coordinates.minOf { it.x } - padding
     val minY = coordinates.minOf { it.y } - padding
@@ -254,33 +328,3 @@ class MinimalSquare(vararg coordinates: Coordinate, padding: Int = 0) : Iterable
         return (minX..maxX).contains(element.x) && (minY..maxY).contains(element.y)
     }
 }
-
-//// assumptions: 2d cartesian coordinates
-//interface Grid<NODE, COORDINATE> where NODE : GridNode<COORDINATE>, COORDINATE : Coordinate {
-//    val nodes: List<NODE>
-//
-//    fun visualize()
-//    fun getNode(position : COORDINATE) : NODE?
-//}
-//
-//interface EndlessGrid<NODE, COORDINATE> : Grid<NODE, COORDINATE> where NODE : GridNode<COORDINATE>, COORDINATE : Coordinate {
-//    val min: COORDINATE = nodes.map(GridNode::coordinate)
-//    val max: COORDINATE
-//}
-//
-//interface GridNode<COORDINATE : Coordinate> {
-//    val gridChar: Char
-//    val coordinate: COORDINATE
-//}
-//
-//interface Coordinate : Comparable<Coordinate>
-//
-//class Coordinate2d(val x: Int, val y: Int) : Coordinate, Comparable<Coordinate2d> {
-//    override fun compareTo(other: Coordinate2d): Int {
-//        TODO("Not yet implemented")
-//    }
-//
-//    override fun compareTo(other: Coordinate): Int {
-//        TODO("Not yet implemented")
-//    }
-//}
